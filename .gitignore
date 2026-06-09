@@ -33,8 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
-# uploads
-/uploads/
+# uploads - exclude generated enhanced audio, keep original mp3 and slides
+/uploads/**/*.wav
+/uploads/**/*.tmp
 
 # vercel
 .vercel
