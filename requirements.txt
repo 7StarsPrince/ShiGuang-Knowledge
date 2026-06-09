@@ -1,0 +1,17 @@
+# 拾光知识库 Python 依赖
+# 用于音频增强和语音转录功能
+
+# --- 语音识别 (transcribe_whisper.py) ---
+openai-whisper>=20231117
+resampy>=0.4.2
+
+# --- 音频增强 - DeepFilterNet3 (enhance_audio.py) ---
+deepfilternet>=0.5.6
+torch>=2.0.0
+
+# --- 音频增强 - noisereduce (enhance_audio_demucs.py) ---
+noisereduce>=3.0.0
+
+# --- 通用音频处理 ---
+numpy>=1.24.0
+soundfile>=0.12.1
