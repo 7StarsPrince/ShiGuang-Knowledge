@@ -34,11 +34,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const db = getDb();
     const body = await req.json();
-    const { title, conference, speaker, speech_date, topic_id, transcript, notes, tags } = body;
+    const { title, conference, speaker, speech_date, topic_id, transcript, transcript_json, notes, tags } = body;
 
-    db.prepare(
-      `UPDATE speeches SET title=?, conference=?, speaker=?, speech_date=?, topic_id=?, transcript=?, notes=? WHERE id=?`
-    ).run(title, conference || null, speaker || null, speech_date || null, topic_id || null, transcript || null, notes || null, id);
+    // Build dynamic SET clause — only update fields that are provided
+    const fields: Record<string, any> = {};
+    if (title !== undefined) fields.title = title;
+    if (conference !== undefined) fields.conference = conference || null;
+    if (speaker !== undefined) fields.speaker = speaker || null;
+    if (body.speaker_org !== undefined) fields.speaker_org = body.speaker_org || null;
+    if (speech_date !== undefined) fields.speech_date = speech_date || null;
+    if (topic_id !== undefined) fields.topic_id = topic_id || null;
+    if (transcript !== undefined) fields.transcript = transcript || null;
+    if (transcript_json !== undefined) fields.transcript_json = transcript_json || null;
+    if (notes !== undefined) fields.notes = notes || null;
+
+    if (Object.keys(fields).length > 0) {
+      const setClause = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE speeches SET ${setClause} WHERE id = ?`).run(...Object.values(fields), id);
+    }
 
     if (tags) {
       db.prepare(`DELETE FROM speech_tags WHERE speech_id = ?`).run(id);

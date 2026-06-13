@@ -6,13 +6,13 @@
 }
 
 body {
-  background: #0a0a0a;
-  color: #ededed;
+  background: #111922;
+  color: #dce3eb;
   font-family: Arial, Helvetica, sans-serif;
 }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #111; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #555; }
+::-webkit-scrollbar-track { background: #111922; }
+::-webkit-scrollbar-thumb { background: #2a3a4e; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a4e65; }

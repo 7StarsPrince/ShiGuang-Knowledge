@@ -33,7 +33,7 @@ function SearchResults() {
           {/* Speeches */}
           {results.speeches.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-sm font-semibold text-blue-400">峰会演讲 ({results.speeches.length})</h2>
+              <h2 className="text-sm font-semibold text-blue-400">科技研讨会 ({results.speeches.length})</h2>
               {results.speeches.map((s: any) => (
                 <Link key={s.id} href={`/speeches/${s.id}`}
                   className="block bg-gray-900/30 border border-gray-800/40 rounded-xl p-4 hover:bg-gray-800/30 transition-colors">

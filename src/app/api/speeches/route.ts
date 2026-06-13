@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { analyzeAndStore } from '@/lib/ai-helpers';
 
 // GET /api/speeches
 export async function GET(req: NextRequest) {
@@ -64,6 +65,13 @@ export async function POST(req: NextRequest) {
         const tagId = (getTag.get(name) as any).id;
         linkTag.run(speechId, tagId);
       }
+    }
+
+    // Fire-and-forget AI analysis
+    if (body.transcript) {
+      analyzeAndStore('speech', speechId).catch(err =>
+        console.error('Background AI analysis failed:', err)
+      );
     }
 
     return NextResponse.json({ id: speechId, message: 'Speech created' }, { status: 201 });

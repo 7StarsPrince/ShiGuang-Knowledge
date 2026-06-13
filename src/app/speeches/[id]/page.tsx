@@ -7,12 +7,13 @@ import WaveSurfer from 'wavesurfer.js';
 interface Slide { id: number; slide_order: number; slide_time: number; image_path: string; }
 interface TranscriptParagraph { pTime: number[]; role: string; words: Array<{ text: string; time: number[]; wp: string }>; }
 interface Speech {
-  id: number; title: string; conference: string; speaker: string; speech_date: string;
+  id: number; title: string; conference: string; speaker: string; speaker_org: string; speech_date: string;
   transcript: string; transcript_json: string; audio_path: string; audio_duration: number;
   audio_enhanced_path: string; audio_enhanced_demucs_path: string;
   transcript_demucs_json: string; demucs_passes: number;
   notes: string; source_url: string; topic: string;
   topic_id: number | null; topic_name: string; tags?: string; slides: Slide[];
+  ai_keywords?: string; ai_summary?: string; ai_entities?: string; ai_analyzed_at?: string;
 }
 
 interface TopicOption {
@@ -128,7 +129,7 @@ function EditForm({
         <input value={speech.title} onChange={e => onFieldChange('title', e.target.value)}
           className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="block text-xs text-gray-400 mb-1">会议名称</label>
           <input value={speech.conference || ''} onChange={e => onFieldChange('conference', e.target.value)}
@@ -137,6 +138,11 @@ function EditForm({
         <div>
           <label className="block text-xs text-gray-400 mb-1">演讲者</label>
           <input value={speech.speaker || ''} onChange={e => onFieldChange('speaker', e.target.value)}
+            className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">演讲者所属机构</label>
+          <input value={speech.speaker_org || ''} onChange={e => onFieldChange('speaker_org', e.target.value)}
             className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
         </div>
       </div>
@@ -217,31 +223,30 @@ export default function SpeechDetailPage() {
   type AudioSource = 'original' | 'enhanced_demucs';
   const [audioSource, setAudioSource] = useState<AudioSource>('original');
   const [enhancing, setEnhancing] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [enhanceProgress, setEnhanceProgress] = useState(0);
   const [enhanceMessage, setEnhanceMessage] = useState('');
   const [enhanceRemaining, setEnhanceRemaining] = useState(0);
   const [demucsPasses, setDemucsPasses] = useState(1);
   const [hasDemucs, setHasDemucs] = useState(false);
   const [demucsPassesCount, setDemucsPassesCount] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [audioVersion, setAudioVersion] = useState(Date.now());
+  const [currentParaIdx, setCurrentParaIdx] = useState(-1);
+  const [editingParaIdx, setEditingParaIdx] = useState(-1);
+  const [editingParaText, setEditingParaText] = useState('');
+  const currentParaIdxRef = useRef(-1);
 
-  // Whisper transcription
-  const [demucsParagraphs, setDemucsParagraphs] = useState<Array<{
-    time: string; timeMs: number; role: string; roleName: string; text: string;
-  }>>([]);
-  const [transcribing, setTranscribing] = useState(false);
-  const [transcribeProgress, setTranscribeProgress] = useState(0);
-  const [transcribeMessage, setTranscribeMessage] = useState('');
-  const [showTranscribeOptions, setShowTranscribeOptions] = useState(false);
-  const [whisperSource, setWhisperSource] = useState<'original' | 'demucs'>('original');
-  const [whisperModel, setWhisperModel] = useState('medium');
-
-  const fileUrl = (p: string) => p ? `/api/${p}` : '';
+  const fileUrl = (p: string) => p ? `/api/${p}?t=${audioVersion}` : '';
 
   const [paragraphs, setParagraphs] = useState<Array<{
     time: string; timeMs: number; role: string; roleName: string; text: string;
   }>>([]);
   const [roleMap, setRoleMap] = useState<Record<string, string>>({});
 
+  // Ref for accessing latest paragraphs in event handlers
+  const paragraphsRef = useRef<Array<any>>([]);
+  useEffect(() => { paragraphsRef.current = paragraphs; }, [paragraphs]);
   // ── Load data ──
   useEffect(() => {
     fetch(`/api/speeches/${params.id}`).then(r => r.json()).then(data => {
@@ -269,17 +274,6 @@ export default function SpeechDetailPage() {
       setLoading(false);
       if (data.audio_enhanced_demucs_path) { setHasDemucs(true); setAudioSource('enhanced_demucs'); }
       setDemucsPassesCount(data.demucs_passes || 0);
-      if (data.transcript_demucs_json) {
-        try {
-          const rawDemucs = JSON.parse(data.transcript_demucs_json);
-          const parsedDemucs = rawDemucs.map((p: TranscriptParagraph) => {
-            const bg = (p.pTime || [0])[0] || 0;
-            const text = (p.words || []).map((w: any) => w.text || '').join('');
-            return { time: formatTime(bg), timeMs: bg, role: p.role, roleName: 'Whisper', text };
-          });
-          setDemucsParagraphs(parsedDemucs);
-        } catch {}
-      }
     }).catch(() => setLoading(false));
   }, [params.id]);
 
@@ -352,10 +346,19 @@ export default function SpeechDetailPage() {
       const ct = ws.getCurrentTime();
       setCurrentTime(ct);
       syncSlide(ct);
+      const idx = findParaIdx(ct * 1000);
+      setCurrentParaIdx(idx);
+      currentParaIdxRef.current = idx;
     });
-    ws.on('seeking', () => setCurrentTime(ws.getCurrentTime()));
-    ws.on('play', () => setIsPlaying(true));
-    ws.on('pause', () => setIsPlaying(false));
+    ws.on('seeking', () => { const t = ws.getCurrentTime(); setCurrentTime(t); const idx = findParaIdx(t * 1000); setCurrentParaIdx(idx); currentParaIdxRef.current = idx; });
+    ws.on('play', () => { setIsPlaying(true); setEditingParaIdx(-1); });
+    ws.on('pause', () => {
+      setIsPlaying(false);
+      const idx = currentParaIdxRef.current;
+      setEditingParaIdx(idx);
+      const p = paragraphsRef.current;
+      if (idx >= 0 && idx < p.length) setEditingParaText(p[idx].text);
+    });
 
     return () => {
       audio.pause();
@@ -366,7 +369,7 @@ export default function SpeechDetailPage() {
       gainRef.current = null;
       wsRef.current = null; setWsReady(false);
     };
-  }, [currentAudioPath]);
+  }, [currentAudioPath, audioVersion]);
 
   // Sync volume via GainNode when slider changes
   useEffect(() => {
@@ -403,6 +406,15 @@ export default function SpeechDetailPage() {
     setCurrentSlide(best);
   };
 
+  // Find current paragraph by time (ms)
+  const findParaIdx = (ms: number) => {
+    if (!paragraphs.length) return -1;
+    for (let i = paragraphs.length - 1; i >= 0; i--) {
+      if (paragraphs[i].timeMs <= ms + 200) return i;
+    }
+    return -1;
+  };
+
   const togglePlay = () => wsRef.current?.playPause();
   const skipSec = (s: number) => {
     if (!wsRef.current) return;
@@ -418,6 +430,46 @@ export default function SpeechDetailPage() {
     if (slide?.slide_time && wsRef.current) wsRef.current.setTime(slide.slide_time / 1000);
     manualSlideRef.current = true;
     setTimeout(() => { manualSlideRef.current = false; }, 3000);
+  };
+
+  // ── Inline subtitle edit ──
+  const handleInlineEditSave = async () => {
+    if (editingParaIdx < 0 || !speech) return;
+    const updated = [...paragraphs];
+    updated[editingParaIdx] = { ...updated[editingParaIdx], text: editingParaText };
+    setParagraphs(updated);
+    setEditingParaIdx(-1);
+    // Rebuild plain text transcript
+    const newTranscript = updated.map(p => `[${p.time}] ${p.roleName}: ${p.text}`).join('\n');
+    // Rebuild transcript_json to keep structured data in sync
+    let newTranscriptJson: string | null = null;
+    if (speech.transcript_json) {
+      try {
+        const raw: TranscriptParagraph[] = JSON.parse(speech.transcript_json);
+        if (editingParaIdx < raw.length) {
+          const para = raw[editingParaIdx];
+          // Rebuild words from new text
+          const chars = [...editingParaText];
+          para.words = chars.map((ch, ci) => ({
+            text: ch,
+            time: para.pTime,
+            wp: para.words?.[0]?.wp || '',
+          }));
+          raw[editingParaIdx] = para;
+          newTranscriptJson = JSON.stringify(raw);
+        }
+      } catch { /* fallback: only update transcript */ }
+    }
+    await fetch(`/api/speeches/${speech.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcript: newTranscript,
+        ...(newTranscriptJson ? { transcript_json: newTranscriptJson } : {}),
+      }),
+    });
+    // Update local speech state so subsequent edits are based on latest data
+    setSpeech(prev => prev ? { ...prev, transcript: newTranscript, ...(newTranscriptJson ? { transcript_json: newTranscriptJson } : {}) } : prev);
   };
 
   // ── Minimap range → zoom ──
@@ -458,6 +510,32 @@ export default function SpeechDetailPage() {
     if (!confirm('确定要删除这条演讲记录吗？')) return;
     await fetch(`/api/speeches/${speech!.id}`, { method: 'DELETE' });
     router.push('/speeches');
+  };
+
+  const handleAnalyze = async () => {
+    if (!speech || analyzing) return;
+    setAnalyzing(true);
+    try {
+      const res = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentType: 'speech', contentId: speech.id }),
+      });
+      const data = await res.json();
+      if (data.error) { alert(data.error); return; }
+      setSpeech(prev => prev ? {
+        ...prev,
+        ai_keywords: JSON.stringify(data.keywords),
+        ai_summary: data.summary,
+        ai_entities: JSON.stringify(data.entities),
+        ai_analyzed_at: new Date().toISOString(),
+      } : prev);
+    } catch (err) {
+      console.error('AI analyze failed:', err);
+      alert('AI 分析失败');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleEnhance = async () => {
@@ -508,6 +586,7 @@ export default function SpeechDetailPage() {
               setSpeech(prev => prev ? { ...prev, [data.dbColumn]: data.enhancedPath } : prev);
               setHasDemucs(true);
               setAudioSource('enhanced_demucs');
+              setAudioVersion(Date.now());
               if (data.passes) setDemucsPassesCount(data.passes);
             } else if (currentEvent === 'error') {
               alert(data.error);
@@ -533,73 +612,35 @@ export default function SpeechDetailPage() {
     setEnhanceMessage('');
   };
 
-  const handleTranscribe = async () => {
-    if (!speech || transcribing) return;
-    setShowTranscribeOptions(false);
-    setTranscribing(true);
-    setTranscribeProgress(0);
-    setTranscribeMessage('启动 Whisper 转写...');
-
+  const handleExportMp3 = async () => {
+    if (!speech || exporting) return;
+    setExporting(true);
     try {
-      const res = await fetch(`/api/speeches/${speech.id}/transcribe`, {
+      const res = await fetch(`/api/speeches/${speech.id}/export-mp3`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioSource: whisperSource, model: whisperModel }),
+        body: JSON.stringify({ source: 'demucs' }),
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(err.error || '转写失败');
+        alert(err.error || '导出失败');
         return;
       }
-
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        let currentEvent = '';
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith('data: ') && currentEvent) {
-            const data = JSON.parse(line.slice(6));
-            if (currentEvent === 'progress') {
-              setTranscribeProgress(data.pct);
-              setTranscribeMessage(data.message);
-            } else if (currentEvent === 'done') {
-              // Reload speech to get transcript_demucs_json
-              fetch(`/api/speeches/${params.id}`).then(r => r.json()).then(d => {
-                if (d.transcript_demucs_json) {
-                  try {
-                    const rawDemucs = JSON.parse(d.transcript_demucs_json);
-                    const parsedDemucs = rawDemucs.map((p: TranscriptParagraph) => {
-                      const bg = (p.pTime || [0])[0] || 0;
-                      const text = (p.words || []).map((w: any) => w.text || '').join('');
-                      return { time: formatTime(bg), timeMs: bg, role: p.role, roleName: 'Whisper', text };
-                    });
-                    setDemucsParagraphs(parsedDemucs);
-                  } catch {}
-                }
-              });
-            } else if (currentEvent === 'error') {
-              alert(data.error);
-            }
-            currentEvent = '';
-          }
-        }
-      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename\*=UTF-8''(.+)/);
+      a.download = match ? decodeURIComponent(match[1]) : `${speech.title || 'audio'}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (e: any) {
-      if (e?.name !== 'AbortError') alert('转写失败');
+      alert('导出失败: ' + (e.message || '未知错误'));
     } finally {
-      setTranscribing(false);
-      setTranscribeProgress(0);
+      setExporting(false);
     }
   };
 
@@ -636,7 +677,7 @@ export default function SpeechDetailPage() {
           </button>
           <h1 className="text-xl font-bold text-white">{speech.title}</h1>
           <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500">
-            {speech.speaker && <span>{speech.speaker}</span>}
+            {speech.speaker && <span>{speech.speaker}{speech.speaker_org ? ` (${speech.speaker_org})` : ''}</span>}
             {speech.conference && <span>{speech.conference}</span>}
             {speech.speech_date && <span>{new Date(speech.speech_date).toLocaleDateString('zh-CN')}</span>}
             {speech.audio_duration > 0 && <span>{fmtDur(speech.audio_duration)}</span>}
@@ -658,6 +699,10 @@ export default function SpeechDetailPage() {
           ) : (
             <>
               <button onClick={() => setEditing(true)} className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">编辑</button>
+              <button onClick={handleAnalyze} disabled={analyzing}
+                className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${analyzing ? 'bg-cyan-900/30 text-cyan-400/50 cursor-wait' : 'bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400'}`}>
+                {analyzing ? '分析中...' : 'AI 分析'}
+              </button>
               <button onClick={handleDelete} className="px-3 py-1.5 text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg transition-colors">删除</button>
             </>
           )}
@@ -690,6 +735,63 @@ export default function SpeechDetailPage() {
         </div>
       ) : (
         <>
+          {/* AI Analysis */}
+          {(speech.ai_keywords || speech.ai_summary) && (() => {
+            const aiKw = speech.ai_keywords ? JSON.parse(speech.ai_keywords) : [];
+            const aiEnt = speech.ai_entities ? JSON.parse(speech.ai_entities) : {};
+            const entCategories = [
+              { key: 'companies', label: '公司', icon: '🏢' },
+              { key: 'drugs', label: '药品', icon: '💊' },
+              { key: 'people', label: '人物', icon: '👤' },
+              { key: 'organizations', label: '机构', icon: '🏛️' },
+              { key: 'diseases', label: '疾病', icon: '🩺' },
+              { key: 'mechanisms', label: '靶点/机制', icon: '🧬' },
+            ];
+            return (
+              <div className="bg-gray-900/30 border border-cyan-800/30 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-cyan-400 flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    AI 分析
+                  </h2>
+                  {speech.ai_analyzed_at && (
+                    <span className="text-[10px] text-gray-600">{new Date(speech.ai_analyzed_at).toLocaleString('zh-CN')}</span>
+                  )}
+                </div>
+                {speech.ai_summary && (
+                  <p className="text-xs text-gray-400 border-l-2 border-cyan-500/30 pl-3 mb-4">{speech.ai_summary}</p>
+                )}
+                {aiKw.length > 0 && (
+                  <div className="mb-4">
+                    <span className="text-[10px] text-gray-500 mb-1.5 block">AI 关键词</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {aiKw.map((kw: string) => (
+                        <span key={kw} className="text-[10px] px-2 py-0.5 bg-cyan-900/20 text-cyan-400/80 rounded">{kw}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {Object.values(aiEnt).some((v: any) => Array.isArray(v) && v.length > 0) && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {entCategories.map(({ key, label, icon }) => {
+                      const items = aiEnt[key] || [];
+                      if (items.length === 0) return null;
+                      return (
+                        <div key={key}>
+                          <span className="text-[10px] text-gray-500 mb-1 block">{icon} {label}</span>
+                          <div className="flex flex-wrap gap-1">
+                            {items.map((item: string) => (
+                              <span key={item} className="text-[10px] px-1.5 py-0.5 bg-gray-800/60 text-gray-400 rounded">{item}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {/* Audio + Slides */}
           {(speech.slides?.length > 0 || speech.audio_path) && (
             <div className="bg-gray-900/30 border border-gray-800/40 rounded-xl p-5 space-y-4">
@@ -727,6 +829,18 @@ export default function SpeechDetailPage() {
                         </select>
                       </div>
                     )}
+                    {/* Export MP3 button */}
+                    {hasDemucs && !enhancing && (
+                      <button onClick={handleExportMp3} disabled={exporting}
+                        className="px-3 py-1 text-[10px] bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/20 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {exporting ? (
+                          <><svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>导出中...</>
+                        ) : (
+                          <><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>导出 MP3</>
+                        )}
+                      </button>
+                    )}
                     {/* Progress bar */}
                     {enhancing && (
                       <div className="flex items-center gap-2 flex-1 min-w-[200px]">
@@ -747,8 +861,7 @@ export default function SpeechDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => skipSec(-10)} className="text-[11px] text-gray-500 hover:text-gray-300 px-2 py-1 bg-gray-800/40 rounded">-10s</button>
-                    <button onClick={togglePlay} disabled={!wsReady}
-                      className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-30 text-white transition-colors">
+                    <button onClick={togglePlay} disabled={!wsReady || editingParaIdx >= 0}                      className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-30 text-white transition-colors">
                       {isPlaying ? (
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" /></svg>
                       ) : (
@@ -796,6 +909,40 @@ export default function SpeechDetailPage() {
                         </div>
                       </div>
                       <p className="text-[10px] text-gray-600">拖动左右边缘缩放波形 · 拖动中间区域平移 · 点击波形跳转播放位置</p>
+                      {/* Live subtitle display — double click to edit */}
+                      {currentParaIdx >= 0 && currentParaIdx < paragraphs.length && (
+                        <div className="mt-2 rounded-lg bg-gray-800/40 border border-gray-700/30 px-4 py-2"
+                          onDoubleClick={() => {
+                            if (wsRef.current && isPlaying) wsRef.current.pause();
+                            const idx = currentParaIdxRef.current;
+                            setEditingParaIdx(idx);
+                            const p = paragraphsRef.current;
+                            if (idx >= 0 && idx < p.length) setEditingParaText(p[idx].text);
+                          }}>
+                          {editingParaIdx >= 0 && editingParaIdx < paragraphs.length && !isPlaying ? (
+                            <div className="flex items-start gap-2">
+                              <span className="text-[10px] text-gray-500 font-mono shrink-0 mt-1.5">[{paragraphs[editingParaIdx].time}]</span>
+                              <textarea
+                                value={editingParaText}
+                                onChange={e => setEditingParaText(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Escape') setEditingParaIdx(-1); }}
+                                className="flex-1 bg-gray-900/60 border border-blue-500/30 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-blue-500/60 resize-none"
+                                rows={2}
+                                autoFocus
+                              />
+                              <button onClick={handleInlineEditSave}
+                                className="px-2 py-1 text-[10px] bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors shrink-0">保存</button>
+                              <button onClick={() => setEditingParaIdx(-1)}
+                                className="px-2 py-1 text-[10px] bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors shrink-0">取消</button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] text-gray-500 font-mono shrink-0">[{paragraphs[currentParaIdx].time}]</span>
+                              <span className="text-sm text-gray-200">{paragraphs[currentParaIdx].text}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                   {!wsReady && <div className="text-xs text-gray-600 text-center py-2">音频加载中...</div>}
@@ -803,30 +950,36 @@ export default function SpeechDetailPage() {
               )}
 
               {speech.slides?.length > 0 && (
-                <div className="relative">
-                  <img src={fileUrl(speech.slides[currentSlide].image_path)} alt=""
-                    className="max-h-[500px] mx-auto rounded-lg border border-gray-800/50 cursor-pointer"
-                    onClick={() => jumpToTime(speech.slides[currentSlide]?.slide_time || 0)} />
-                  <div className="flex items-center justify-center gap-4 mt-3">
-                    <button onClick={() => jumpToSlide(Math.max(0, currentSlide - 1))} disabled={currentSlide === 0}
-                      className="px-3 py-1 text-xs bg-gray-800/50 text-gray-400 rounded disabled:opacity-30">上一张</button>
-                    <span className="text-xs text-gray-500">{currentSlide + 1} / {speech.slides.length}</span>
-                    {speech.slides[currentSlide]?.slide_time > 0 && <span className="text-[10px] text-gray-600">{fmtDur(speech.slides[currentSlide].slide_time)}</span>}
-                    <button onClick={() => jumpToSlide(Math.min(speech.slides.length - 1, currentSlide + 1))} disabled={currentSlide === speech.slides.length - 1}
-                      className="px-3 py-1 text-xs bg-gray-800/50 text-gray-400 rounded disabled:opacity-30">下一张</button>
-                  </div>
-                </div>
-              )}
-
-              {speech.slides?.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                  {speech.slides.map((slide, idx) => (
-                    <div key={slide.id} onClick={() => jumpToSlide(idx)}
-                      className={`relative shrink-0 cursor-pointer rounded border-2 transition-colors ${idx === currentSlide ? 'border-blue-500' : 'border-transparent hover:border-gray-600'}`}>
-                      <img src={fileUrl(slide.image_path)} alt="" className="h-16 w-auto rounded" />
-                      {slide.slide_time > 0 && <span className="absolute bottom-0.5 right-0.5 text-[8px] bg-black/70 text-gray-300 px-1 rounded">{fmtDur(slide.slide_time)}</span>}
+                <div className="flex gap-3 items-stretch">
+                  {/* Left: main slide image */}
+                  <div className="flex-1 min-w-0 flex flex-col" style={{ maxHeight: '480px' }}>
+                    <div className="flex-1 flex items-center justify-center overflow-hidden">
+                      <img src={fileUrl(speech.slides[currentSlide].image_path)} alt=""
+                        className="w-[80%] h-full object-contain rounded-lg border border-gray-800/50 cursor-pointer"
+                        onClick={() => jumpToTime(speech.slides[currentSlide]?.slide_time || 0)} />
                     </div>
-                  ))}
+                    <div className="flex items-center justify-center gap-4 mt-2">
+                      <button onClick={() => jumpToSlide(Math.max(0, currentSlide - 1))} disabled={currentSlide === 0}
+                        className="px-3 py-1 text-xs bg-gray-800/50 text-gray-400 rounded disabled:opacity-30">上一张</button>
+                      <span className="text-xs text-gray-500">{currentSlide + 1} / {speech.slides.length}</span>
+                      {speech.slides[currentSlide]?.slide_time > 0 && <span className="text-[10px] text-gray-600">{fmtDur(speech.slides[currentSlide].slide_time)}</span>}
+                      <button onClick={() => jumpToSlide(Math.min(speech.slides.length - 1, currentSlide + 1))} disabled={currentSlide === speech.slides.length - 1}
+                        className="px-3 py-1 text-xs bg-gray-800/50 text-gray-400 rounded disabled:opacity-30">下一张</button>
+                    </div>
+                  </div>
+                  {/* Right: vertical thumbnail list (max 7 visible, scroll for more) */}
+                  {speech.slides.length > 1 && (
+                    <div className="w-28 shrink-0 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'thin', maxHeight: '480px' }}>
+                      {speech.slides.map((slide, idx) => (
+                        <div key={slide.id} onClick={() => jumpToSlide(idx)}
+                          className={`relative cursor-pointer rounded border-2 transition-colors ${idx === currentSlide ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-transparent hover:border-gray-600'}`}>
+                          <img src={fileUrl(slide.image_path)} alt="" className="w-full rounded" />
+                          {slide.slide_time > 0 && <span className="absolute bottom-0.5 right-0.5 text-[7px] bg-black/70 text-gray-300 px-1 rounded">{fmtDur(slide.slide_time)}</span>}
+                          <span className="absolute top-0.5 left-0.5 text-[7px] bg-black/70 text-gray-400 px-1 rounded">{idx + 1}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -836,100 +989,20 @@ export default function SpeechDetailPage() {
           {paragraphs.length > 0 ? (
             <div className="bg-gray-900/30 border border-gray-800/40 rounded-xl p-5">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-white">
-                  {demucsParagraphs.length > 0 ? '字幕对比' : `字幕 (${paragraphs.length} 段)`}
-                </h2>
+                <h2 className="text-sm font-semibold text-white">字幕 ({paragraphs.length} 段)</h2>
                 <div className="flex items-center gap-2">
                   {Object.entries(roleMap).map(([r, n]) => <span key={r} className="text-[10px] px-2 py-0.5 bg-purple-900/20 text-purple-400/70 rounded">{n}</span>)}
-                  {/* Whisper transcribe button */}
-                  {transcribing ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 rounded-full transition-all duration-300" style={{ width: `${transcribeProgress}%` }} />
-                      </div>
-                      <span className="text-[10px] text-gray-500">{transcribeProgress}%</span>
-                      {transcribeMessage && <span className="text-[10px] text-gray-500">{transcribeMessage}</span>}
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <button onClick={() => setShowTranscribeOptions(!showTranscribeOptions)}
-                        className={`px-3 py-1 text-[10px] rounded-lg transition-colors flex items-center gap-1.5 ${demucsParagraphs.length > 0 ? 'bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-500/20' : 'bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 border border-cyan-500/20'}`}
-                      >
-                        {demucsParagraphs.length > 0 ? '重新识别' : 'Whisper 识别'}
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                      </button>
-                      {showTranscribeOptions && (
-                        <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700/50 rounded-lg p-3 z-50 w-56 shadow-xl">
-                          <div className="mb-2">
-                            <label className="text-[10px] text-gray-400 block mb-1">音频源</label>
-                            <select value={whisperSource} onChange={e => setWhisperSource(e.target.value as any)}
-                              className="w-full bg-gray-900/60 border border-gray-700/40 rounded px-2 py-1 text-[11px] text-gray-300">
-                              <option value="original">原始音频</option>
-                              {hasDemucs && <option value="demucs">人声分离音频</option>}
-                            </select>
-                          </div>
-                          <div className="mb-2">
-                            <label className="text-[10px] text-gray-400 block mb-1">模型大小</label>
-                            <select value={whisperModel} onChange={e => setWhisperModel(e.target.value)}
-                              className="w-full bg-gray-900/60 border border-gray-700/40 rounded px-2 py-1 text-[11px] text-gray-300">
-                              <option value="tiny">tiny（最快）</option>
-                              <option value="base">base（快）</option>
-                              <option value="small">small（均衡）</option>
-                              <option value="medium">medium（推荐）</option>
-                              <option value="large-v3">large-v3（最准）</option>
-                            </select>
-                          </div>
-                          <button onClick={handleTranscribe}
-                            className="w-full py-1.5 text-[11px] bg-cyan-600 hover:bg-cyan-700 text-white rounded transition-colors">
-                            开始识别
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
-              {demucsParagraphs.length > 0 ? (
-                /* Dual-pane layout with shared scroll */
-                <div className="flex gap-0 max-h-[500px] overflow-y-auto" id="dual-pane-scroll">
-                  {/* Left: Original subtitles */}
-                  <div className="flex-1 min-w-0 border-r border-gray-800/40 pr-3">
-                    <div className="text-[10px] text-gray-500 mb-2 font-medium sticky top-0 bg-[#0a0a0a]/90 backdrop-blur py-1 z-10">原始字幕</div>
-                    <div className="space-y-1.5">
-                      {paragraphs.map((p, i) => (
-                        <div key={i} className="flex gap-2 text-xs py-1 px-2 rounded hover:bg-gray-800/30 cursor-pointer group" onClick={() => jumpToTime(p.timeMs)}>
-                          <span className="shrink-0 text-gray-600 font-mono w-12 text-right">[{p.time}]</span>
-                          <span className="shrink-0 text-purple-400/70 w-16">{p.roleName}</span>
-                          <span className="text-gray-300 group-hover:text-gray-100">{p.text}</span>
-                        </div>
-                      ))}
-                    </div>
+              <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-2">
+                {paragraphs.map((p, i) => (
+                  <div key={i} className="flex gap-2 text-xs py-1 px-2 rounded hover:bg-gray-800/30 cursor-pointer group" onClick={() => jumpToTime(p.timeMs)}>
+                    <span className="shrink-0 text-gray-600 font-mono w-12 text-right">[{p.time}]</span>
+                    <span className="shrink-0 text-purple-400/70 w-16">{p.roleName}</span>
+                    <span className="text-gray-300 group-hover:text-gray-100">{p.text}</span>
                   </div>
-                  {/* Right: Whisper transcript */}
-                  <div className="flex-1 min-w-0 pl-3">
-                    <div className="text-[10px] text-cyan-400/70 mb-2 font-medium sticky top-0 bg-[#0a0a0a]/90 backdrop-blur py-1 z-10">Whisper 识别</div>
-                    <div className="space-y-1.5">
-                      {demucsParagraphs.map((p, i) => (
-                        <div key={i} className="flex gap-2 text-xs py-1 px-2 rounded hover:bg-gray-800/30 cursor-pointer group" onClick={() => jumpToTime(p.timeMs)}>
-                          <span className="shrink-0 text-gray-600 font-mono w-12 text-right">[{p.time}]</span>
-                          <span className="text-cyan-400/70 group-hover:text-cyan-300">{p.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* Single column: original only */
-                <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-2">
-                  {paragraphs.map((p, i) => (
-                    <div key={i} className="flex gap-2 text-xs py-1 px-2 rounded hover:bg-gray-800/30 cursor-pointer group" onClick={() => jumpToTime(p.timeMs)}>
-                      <span className="shrink-0 text-gray-600 font-mono w-12 text-right">[{p.time}]</span>
-                      <span className="shrink-0 text-purple-400/70 w-16">{p.roleName}</span>
-                      <span className="text-gray-300 group-hover:text-gray-100">{p.text}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                ))}
+              </div>
             </div>
           ) : (
             <div className="bg-gray-900/30 border border-gray-800/40 rounded-xl p-5">

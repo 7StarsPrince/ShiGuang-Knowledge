@@ -238,7 +238,7 @@ export default function TopicsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-white">话题管理</h1>
-          <p className="text-xs text-gray-500 mt-1">按话题统一管理峰会演讲和公众号文章</p>
+          <p className="text-xs text-gray-500 mt-1">按话题统一管理科技研讨会和公众号文章</p>
         </div>
       </div>
 
@@ -371,7 +371,7 @@ export default function TopicsPage() {
               <div className="flex gap-1 mt-3 bg-gray-900/50 rounded-lg p-0.5">
                 <button onClick={() => setPickerTab('speech')}
                   className={`flex-1 py-1.5 text-[11px] rounded-md transition-colors ${pickerTab === 'speech' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                  峰会演讲
+                  科技研讨会
                 </button>
                 <button onClick={() => setPickerTab('article')}
                   className={`flex-1 py-1.5 text-[11px] rounded-md transition-colors ${pickerTab === 'article' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>

@@ -16,6 +16,7 @@ const MIME_TYPES: Record<string, string> = {
   '.aac': 'audio/aac',
   '.ogg': 'audio/ogg',
   '.flac': 'audio/flac',
+  '.pdf': 'application/pdf',
 };
 
 export async function GET(
@@ -79,12 +80,15 @@ export async function GET(
 
   // No Range header: return full file
   const buffer = fs.readFileSync(resolved);
-  return new NextResponse(buffer, {
-    headers: {
-      'Content-Type': contentType,
-      'Content-Length': fileSize.toString(),
-      'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=86400',
-    },
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Content-Length': fileSize.toString(),
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'public, max-age=86400',
+  };
+  // PDF should display inline, not download
+  if (ext === '.pdf') {
+    headers['Content-Disposition'] = 'inline';
+  }
+  return new NextResponse(buffer, { headers });
 }

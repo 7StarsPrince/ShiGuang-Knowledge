@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
     const title = formData.get('title') as string;
     const conference = formData.get('conference') as string;
     const speaker = formData.get('speaker') as string;
+    const speakerOrg = formData.get('speaker_org') as string;
     const speechDate = formData.get('speech_date') as string;
     const tagsStr = formData.get('tags') as string;
 
@@ -48,8 +49,8 @@ export async function POST(req: NextRequest) {
     }
 
     const info = db.prepare(
-      `INSERT INTO speeches (title, conference, speaker, speech_date, transcript, audio_path) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(title, conference || null, speaker || null, speechDate || null, transcript, audioPath);
+      `INSERT INTO speeches (title, conference, speaker, speaker_org, speech_date, transcript, audio_path) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(title, conference || null, speaker || null, speakerOrg || null, speechDate || null, transcript, audioPath);
 
     const speechId = info.lastInsertRowid as number;
 

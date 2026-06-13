@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS speeches (
   title VARCHAR(500) NOT NULL,
   conference VARCHAR(300),
   speaker VARCHAR(200),
+  speaker_org VARCHAR(300),
   speech_date DATE,
   transcript LONGTEXT,
   audio_path VARCHAR(500),

@@ -29,11 +29,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const db = getDb();
     const body = await req.json();
-    const { title, source_name, source_url, author, summary, content, cover_image, published_at, topic_id, tags } = body;
+    const { title, source_name, source_url, author, summary, content, content_html, cover_image, published_at, topic_id, tags } = body;
 
     db.prepare(
-      `UPDATE articles SET title=?, source_name=?, source_url=?, author=?, summary=?, content=?, cover_image=?, published_at=?, topic_id=? WHERE id=?`
-    ).run(title, source_name || null, source_url || null, author || null, summary || null, content || null, cover_image || null, published_at || null, topic_id || null, id);
+      `UPDATE articles SET title=?, source_name=?, source_url=?, author=?, summary=?, content=?, content_html=?, cover_image=?, published_at=?, topic_id=? WHERE id=?`
+    ).run(title, source_name || null, source_url || null, author || null, summary || null, content || null, content_html || null, cover_image || null, published_at || null, topic_id || null, id);
 
     if (tags) {
       db.prepare(`DELETE FROM article_tags WHERE article_id = ?`).run(id);

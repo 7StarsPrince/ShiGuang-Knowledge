@@ -9,7 +9,7 @@ const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'speeches');
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, shareUrl, conference, speaker, speechDate, topicId, tags } = body;
+    const { action, shareUrl, conference, speaker, speakerOrg, speechDate, topicId, tags } = body;
 
     // Extract audioId from URL
     const audioId = extractAudioId(shareUrl);
@@ -72,12 +72,13 @@ export async function POST(req: NextRequest) {
       // Save to database
       const db = getDb();
       const info = db.prepare(`
-        INSERT INTO speeches (title, conference, speaker, speech_date, topic_id, transcript, transcript_json, audio_path, audio_duration, source_url, iflyrec_audio_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO speeches (title, conference, speaker, speaker_org, speech_date, topic_id, transcript, transcript_json, audio_path, audio_duration, source_url, iflyrec_audio_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         title,
         conference || '',
         speaker || '',
+        speakerOrg || '',
         speechDate || '',
         topicId || null,
         transcriptText,

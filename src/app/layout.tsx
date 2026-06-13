@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
+import { SidebarProvider } from "@/components/SidebarContext";
+import AppShell from "@/components/AppShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "拾光知识库 - 私人知识仓库",
-  description: "收集峰会演讲和公众号文章的私人知识库",
+  title: "亚当斯王的拾光知识库",
+  description: "亚当斯王的私人知识仓库 — 科技研讨会 & 公众号文章 & 学术论文集",
 };
 
 export default function RootLayout({
@@ -25,11 +26,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex bg-[#0a0a0a] text-gray-200">
-        <Sidebar />
-        <main className="flex-1 ml-56 p-6 overflow-auto min-h-screen">
-          {children}
-        </main>
+      <body className="min-h-full flex bg-[#111922] text-gray-200">
+        <SidebarProvider>
+          <AppShell>{children}</AppShell>
+        </SidebarProvider>
       </body>
     </html>
   );

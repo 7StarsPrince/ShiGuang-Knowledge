@@ -41,6 +41,7 @@ export default function UploadSpeechPage() {
   const [previewError, setPreviewError] = useState('');
   const [conference, setConference] = useState('');
   const [speaker, setSpeaker] = useState('');
+  const [speakerOrg, setSpeakerOrg] = useState('');
   const [speechDate, setSpeechDate] = useState('');
   const [topicId, setTopicId] = useState<number | ''>('');
   const [tagsInput, setTagsInput] = useState('');
@@ -65,6 +66,7 @@ export default function UploadSpeechPage() {
     formData.append('title', fd.get('title') as string);
     formData.append('conference', fd.get('conference') as string);
     formData.append('speaker', fd.get('speaker') as string);
+    formData.append('speaker_org', fd.get('speaker_org') as string);
     formData.append('speech_date', fd.get('speech_date') as string);
     formData.append('tags', fd.get('tags') as string);
 
@@ -124,6 +126,7 @@ export default function UploadSpeechPage() {
           shareUrl,
           conference,
           speaker,
+          speakerOrg,
           speechDate,
           topicId: topicId || null,
           tags,
@@ -278,6 +281,11 @@ export default function UploadSpeechPage() {
                   <input value={speaker} onChange={(e) => setSpeaker(e.target.value)}
                     className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
                 </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">演讲者所属机构</label>
+                  <input value={speakerOrg} onChange={(e) => setSpeakerOrg(e.target.value)}
+                    className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -338,7 +346,7 @@ export default function UploadSpeechPage() {
               <label className="block text-xs text-gray-400 mb-1.5">标题 *</label>
               <input name="title" required className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">会议名称</label>
                 <input name="conference" className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
@@ -346,6 +354,10 @@ export default function UploadSpeechPage() {
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">演讲者</label>
                 <input name="speaker" className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">演讲者所属机构</label>
+                <input name="speaker_org" className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500/50" />
               </div>
             </div>
             <div>

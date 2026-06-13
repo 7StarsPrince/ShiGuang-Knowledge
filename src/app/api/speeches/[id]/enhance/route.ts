@@ -46,7 +46,15 @@ export async function POST(
   if (speech[config.dbColumn]) {
     const oldPath = path.join(process.cwd(), speech[config.dbColumn]);
     if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    // Also clean up any leftover MP3 export from the same base name
+    const mp3Path = oldPath.replace(/\.wav$/, '.mp3');
+    if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
   }
+  // Always ensure output path is clear (even if DB column was null)
+  const ensureOutputPath = path.join(path.dirname(path.join(process.cwd(), speech.audio_path)), config.outputFile);
+  if (fs.existsSync(ensureOutputPath)) fs.unlinkSync(ensureOutputPath);
+  const ensureOutputMp3 = ensureOutputPath.replace(/\.wav$/, '.mp3');
+  if (fs.existsSync(ensureOutputMp3)) fs.unlinkSync(ensureOutputMp3);
 
   const inputPath = path.join(process.cwd(), speech.audio_path);
   if (!fs.existsSync(inputPath)) return new Response(JSON.stringify({ error: 'Audio file missing on disk' }), { status: 400 });
